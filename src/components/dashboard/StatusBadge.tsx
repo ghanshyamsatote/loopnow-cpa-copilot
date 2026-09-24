@@ -9,32 +9,32 @@ const STATUS_CONFIG: Record<
     idle: {
         label: "Pending",
         icon: "○", // ○
-        className: "bg-gray-100 text-gray-700",
+        className: "bg-gray-100 text-gray-600",
     },
     reading: {
         label: "Reading…",
         icon: "●", // ●
-        className: "bg-blue-100 text-blue-700",
+        className: "bg-indigo-100 text-indigo-700 animate-pulse",
     },
     validating: {
         label: "Validating…",
         icon: "●",
-        className: "bg-blue-100 text-blue-700",
+        className: "bg-indigo-100 text-indigo-700 animate-pulse",
     },
     categorizing: {
         label: "Categorizing…",
         icon: "●",
-        className: "bg-blue-100 text-blue-700",
+        className: "bg-indigo-100 text-indigo-700 animate-pulse",
     },
     calculating: {
         label: "Calculating…",
         icon: "●",
-        className: "bg-blue-100 text-blue-700",
+        className: "bg-indigo-100 text-indigo-700 animate-pulse",
     },
     mapping: {
         label: "Mapping GIFI…",
         icon: "●",
-        className: "bg-blue-100 text-blue-700",
+        className: "bg-indigo-100 text-indigo-700 animate-pulse",
     },
     review: {
         label: "Review Required",
@@ -58,7 +58,7 @@ export function StatusBadge({ stage }: { stage: ProcessingStage }) {
 
     return (
         <span
-            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${config.className}`}
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${config.className}`}
         >
             <span aria-hidden="true">{config.icon}</span>
             {config.label}
