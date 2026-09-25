@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
+import type { ReceiptRecord } from "@/agent/state/receipt-store";
 
 interface ChatPanelProps {
-    selectedReceiptId: string | null;
+    selectedReceipt: ReceiptRecord | null;
     onReceiptProcessed?: () => void;
 }
 
@@ -21,33 +22,92 @@ const TOOL_LABELS: Record<string, string> = {
     get_processing_status: "Checking processing status",
 };
 
+const QUICK_ACTIONS = [
+    "Process this receipt",
+    "Can I claim the GST/HST on this?",
+    "Why does this need review?",
+];
+
+const GST_STATUS_LABELS: Record<string, string> = {
+    VALID_FORMAT: "Format valid",
+    MISSING: "No GST/HST number",
+    MALFORMED: "Malformed number",
+    INVALID_FORMAT: "Invalid format",
+};
+
 function toolStateIcon(state: string): string {
     if (state === "output-available") return "✓"; // ✓
     if (state === "output-error") return "✗"; // ✗
     return "●"; // ● (in progress)
 }
 
-export function ChatPanel({ selectedReceiptId, onReceiptProcessed }: ChatPanelProps) {
+/**
+ * A short, human-readable result for a finished tool call, so the user can see
+ * what each step actually found rather than just that it ran. Returns null
+ * when there is nothing useful to add beyond the label.
+ */
+function summarizeToolOutput(toolName: string, output: unknown): string | null {
+    if (!output || typeof output !== "object") return null;
+    const o = output as Record<string, unknown>;
+
+    if (o.status === "NO_RECEIPT_SELECTED") return "No receipt selected";
+    if (o.status === "NOT_FOUND") return "Receipt not found";
+
+    switch (toolName) {
+        case "validate_gst_hst_number_format":
+            return GST_STATUS_LABELS[String(o.status)] ?? String(o.status);
+        case "validate_cra_documentation":
+            return `Tier ${o.tier} · ${o.status}`;
+        case "classify_expense":
+            return o.category ? String(o.category) : "Unclear — needs review";
+        case "calculate_eligible_itc":
+            return typeof o.eligibleITC === "number"
+                ? `$${o.eligibleITC.toFixed(2)} (${o.status})`
+                : null;
+        case "assign_gifi_code":
+            return o.status === "VALID"
+                ? `${o.gifiCode} · ${o.gifiName}`
+                : "Code not recognized";
+        case "update_expense_classification":
+            return o.status === "SAVED" ? "Saved" : "Save failed";
+        default:
+            return null;
+    }
+}
+
+export function ChatPanel({ selectedReceipt, onReceiptProcessed }: ChatPanelProps) {
     const [input, setInput] = useState("");
 
-    const { messages, sendMessage, status, error } = useChat({
-        transport: new DefaultChatTransport({ api: "/api/chat" }),
-        onFinish: () => {
-            onReceiptProcessed?.();
-        },
-    });
+    const { messages, sendMessage, setMessages, stop, status, error, clearError } =
+        useChat({
+            transport: new DefaultChatTransport({ api: "/api/chat" }),
+            onFinish: () => {
+                onReceiptProcessed?.();
+            },
+        });
 
     const isBusy = status === "submitted" || status === "streaming";
+    const selectedReceiptId = selectedReceipt?.id ?? null;
+    const receiptLabel = selectedReceipt
+        ? `${selectedReceipt.merchantName.trim() || "Unknown merchant"} · $${selectedReceipt.totalAmount.toFixed(2)}`
+        : null;
+
+    function send(text: string) {
+        const trimmed = text.trim();
+        if (!trimmed || isBusy) return;
+        sendMessage({ text: trimmed }, { body: { selectedReceiptId } });
+    }
 
     function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        const text = input.trim();
-        if (!text || isBusy) return;
+        send(input);
+        setInput("");
+    }
 
-        sendMessage(
-            { text },
-            { body: { selectedReceiptId } },
-        );
+    function handleNewChat() {
+        stop();
+        setMessages([]);
+        clearError();
         setInput("");
     }
 
@@ -60,20 +120,47 @@ export function ChatPanel({ selectedReceiptId, onReceiptProcessed }: ChatPanelPr
                 >
                     AI
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                     <h2 className="text-sm font-medium leading-tight">CPA Copilot</h2>
-                    <p className="truncate text-xs text-muted">
-                        {selectedReceiptId
-                            ? `Selected: ${selectedReceiptId}`
-                            : "No receipt selected"}
+                    <p className="truncate text-xs text-muted" title={receiptLabel ?? undefined}>
+                        {receiptLabel ?? "No receipt selected"}
                     </p>
                 </div>
+                {messages.length > 0 && (
+                    <button
+                        type="button"
+                        onClick={handleNewChat}
+                        className="shrink-0 rounded-full border border-border px-3 py-1 text-xs font-medium text-muted transition-colors hover:border-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                        New chat
+                    </button>
+                )}
             </div>
 
             <div className="flex-1 space-y-4 overflow-y-auto p-4">
                 {messages.length === 0 && (
-                    <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted">
-                        Select a receipt, then ask me to process it — e.g. &quot;Process this one and tell me if we can claim the GST.&quot;
+                    <div className="space-y-3">
+                        <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted">
+                            {selectedReceipt
+                                ? "Ask me anything about this receipt, or pick a quick action below."
+                                : "Select a receipt on the left to get started."}
+                        </div>
+
+                        {selectedReceipt && (
+                            <div className="flex flex-wrap gap-2">
+                                {QUICK_ACTIONS.map((action) => (
+                                    <button
+                                        key={action}
+                                        type="button"
+                                        onClick={() => send(action)}
+                                        disabled={isBusy}
+                                        className="rounded-full border border-accent/30 bg-accent/5 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40"
+                                    >
+                                        {action}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -110,6 +197,10 @@ export function ChatPanel({ selectedReceiptId, onReceiptProcessed }: ChatPanelPr
                                             output?: unknown;
                                         };
                                         const label = TOOL_LABELS[toolName] ?? toolName;
+                                        const summary =
+                                            toolPart.state === "output-available"
+                                                ? summarizeToolOutput(toolName, toolPart.output)
+                                                : null;
 
                                         return (
                                             <div
@@ -119,7 +210,14 @@ export function ChatPanel({ selectedReceiptId, onReceiptProcessed }: ChatPanelPr
                                                 <span aria-hidden="true">
                                                     {toolStateIcon(toolPart.state)}
                                                 </span>
-                                                <span>{label}</span>
+                                                <span className="min-w-0">
+                                                    {label}
+                                                    {summary && (
+                                                        <span className="font-semibold text-gray-900">
+                                                            : {summary}
+                                                        </span>
+                                                    )}
+                                                </span>
                                             </div>
                                         );
                                     }

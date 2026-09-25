@@ -64,7 +64,20 @@ export function ReceiptCard({
                 </span>
             </div>
 
-            {c && (
+            {/* Collapsed: one summary line. Full details only for the selected card. */}
+            {c && !isSelected && (
+                <p className="mt-3 truncate text-xs text-muted">
+                    <span className="font-mono">{c.gifiCode}</span> · {c.gifiName} · ITC{" "}
+                    <span className="tabular-nums text-foreground">
+                        ${c.eligibleITC.toFixed(2)}
+                    </span>
+                    {c.reviewRequired && (
+                        <span className="text-amber-700"> · needs review</span>
+                    )}
+                </p>
+            )}
+
+            {c && isSelected && (
                 <div className="mt-4 border-t border-border pt-4">
                     <div className="grid gap-3 text-sm sm:grid-cols-2">
                         <div className="min-w-0">
